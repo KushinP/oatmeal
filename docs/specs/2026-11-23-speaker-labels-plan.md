@@ -18,9 +18,9 @@ No new dependency (`hound` is already used to read the WAVs).
   hour instead of loading the whole lane (the full 16 kHz load is ~230 MB per lane per hour). A missing
   file is an empty vec (that lane is silent), matching `session::load_optional`.
 - `classify(mic, sys, start_cs, end_cs) -> Option<Speaker>`: per frame in the span,
-  - sys above `SILENCE` (-40 dBFS) → vote Them, unless mic is `OVERRIDE_DB` (12 dB) louder than sys, in
-    which case vote You (Kush talking over the call). This makes laptop-speaker bleed, which reaches the
-    mic quieter than the digital system lane, count as Them.
+  - sys above `SILENCE` (-40 dBFS): mic quieter than sys → vote Them (laptop-speaker bleed reaches the
+    mic quieter than the digital system lane); mic at least 12 dB louder than sys → vote You (Kush talking
+    over the call); in between → no vote (could be crosstalk or loud speakers; spec says unlabelled).
   - else mic above `SILENCE` → vote You.
   - else silent, no vote.
   - Result: the label with at least `AGREE` (70%) of votes, given at least `MIN_VOTES` (3 frames = 150 ms).

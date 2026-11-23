@@ -126,3 +126,7 @@ Approved without answers; these defaults apply until Kush says otherwise:
 
 - 2026-11-23: Open question 3 answered (recordings are on the other Mac). Technical plan in
   `2026-11-23-speaker-labels-plan.md`.
+- 2026-11-23: Frames where the mic is between 1x and 4x the computer-audio level no longer vote, so equal
+  loudness on both lanes is unlabelled as section 6 requires (the first draft of the plan called it Them).
+- 2026-11-23: An unlabelled line between two lines from the same speaker starts its own paragraph rather
+  than being shown under that speaker, so the UI never implies a label the audio didn't support.

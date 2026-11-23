@@ -9,6 +9,7 @@ pub mod model;
 pub mod recall;
 pub mod session;
 pub mod settings;
+pub mod speaker;
 pub mod store;
 pub mod study;
 mod sleep;
