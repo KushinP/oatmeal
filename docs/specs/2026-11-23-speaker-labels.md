@@ -120,4 +120,9 @@ Approved without answers; these defaults apply until Kush says otherwise:
 
 1. You vs Them is enough for v1 (no Speaker 2/3). — default: yes.
 2. The other side is labelled "Them", not a calendar name. — default: "Them".
-3. Test recordings: none on this Mac. — open: from the other computer, or record 3 fresh ones.
+3. Test recordings: none on this Mac. — answered: they are on Kush's other Mac; the hand check runs there.
+
+## Changes
+
+- 2026-11-23: Open question 3 answered (recordings are on the other Mac). Technical plan in
+  `2026-11-23-speaker-labels-plan.md`.
