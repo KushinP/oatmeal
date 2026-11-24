@@ -182,7 +182,9 @@ fn thread_budget(quality: Quality) -> i32 {
         Quality::Fast => (cores - 2).max(2),
         // Runs *alongside* the live lane, so it takes what is left over rather
         // than what it would like.
-        Quality::Background => (cores / 3).max(1),
+        // A third of the machine at most, and never more than the live lane
+        // leaves free (on 10 cores, live takes 8, so this gets 2, not 3).
+        Quality::Background => (cores / 3).min(cores - thread_budget(Quality::Fast)).max(1),
         Quality::Accurate => (cores - 1).max(2),
     }
 }
