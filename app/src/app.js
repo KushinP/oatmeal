@@ -9,7 +9,7 @@ const { listen, emit } = window.__TAURI__.event
 
 const $ = (id) => document.getElementById(id)
 
-import { CHUNK_KEY, DEFAULT_CHUNK_SECS, EVENTS, chunkSeconds, getLang, setLang } from '/shared.js'
+import { CHUNK_KEY, DEFAULT_CHUNK_SECS, EVENTS, chunkSeconds, getLang, groupTurns, setLang } from '/shared.js'
 import { createDatePicker } from '/datepicker.js'
 import { toMathML } from '/mathml.js'
 
@@ -1542,6 +1542,7 @@ async function renderTranscript() {
     for (const turn of groupTurns(segs)) {
       const block = el('div', 'seg-turn')
       const head = el('div', 'who')
+      if (turn.speaker) head.appendChild(el('span', 'spk', turn.speaker))
       head.appendChild(el('time', '', turn.lines[0].at))
       const p = el('p', '', turn.lines.map((l) => l.text).join(' '))
       block.append(head, p)
@@ -1554,31 +1555,6 @@ async function renderTranscript() {
     p.textContent = String(e)
     noteBody.appendChild(p)
   }
-}
-
-/// Consecutive lines read as one paragraph, with one timestamp on the front.
-///
-/// Whisper cuts a line every time someone pauses, which is why a transcript
-/// arrives as a list of fragments. A block ends once it has run longer than the
-/// chunk length — a long stretch still has to break somewhere a reader can
-/// follow.
-function groupTurns(lines) {
-  const limit = chunkSeconds()
-  const turns = []
-  for (const line of lines) {
-    const last = turns[turns.length - 1]
-    if (last && atSecs(line.at) - atSecs(last.lines[0].at) < limit) last.lines.push(line)
-    else turns.push({ lines: [line] })
-  }
-  return turns
-}
-
-/// `M:SS` (or `H:MM:SS`) as seconds.
-function atSecs(at) {
-  return String(at)
-    .split(':')
-    .map(Number)
-    .reduce((total, part) => total * 60 + (part || 0), 0)
 }
 
 async function renderNotes(force = false, regenerate = false) {

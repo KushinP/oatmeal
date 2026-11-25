@@ -218,7 +218,8 @@ pub fn finish(
     }
 
     let transcript = transcribe::transcribe_samples(model_path, &mixed, language)?;
-    let path = write_transcript_md(dir, title, &transcript, segment_offset_cs(dir, segment))?;
+    let labels = crate::speaker::attribute(dir, segment, &transcript.segments);
+    let path = write_transcript_md(dir, title, &transcript, &labels, segment_offset_cs(dir, segment))?;
 
     Ok(MeetingResult {
         transcript_path: path.display().to_string(),
@@ -256,7 +257,8 @@ pub fn finish_from_blocks(
         return finish(dir, title, segment, model_path, language);
     }
 
-    let path = write_transcript_md(dir, title, &transcript, segment_offset_cs(dir, segment))?;
+    let labels = crate::speaker::attribute(dir, segment, &transcript.segments);
+    let path = write_transcript_md(dir, title, &transcript, &labels, segment_offset_cs(dir, segment))?;
     Ok(MeetingResult {
         transcript_path: path.display().to_string(),
         dir: dir.display().to_string(),
@@ -345,10 +347,16 @@ pub fn write_notes(dir: &Path, title: &str, body: &str) -> Result<PathBuf, Strin
 /// The whole file is rewritten through `store::write` rather than opened in
 /// append mode: an interrupted append leaves a half-written line in the one
 /// document the recording can't be re-made from.
+///
+/// `labels[i]` is who said segment `i` (see `speaker`); it lands inside the
+/// timestamp marker as `**[0:12 · You]**`, which `library::transcript_lines`
+/// parses and `strip_transcript_markup` keeps away from the language model. A
+/// short or empty `labels` writes those lines unlabelled.
 fn write_transcript_md(
     dir: &Path,
     title: &str,
     t: &Transcript,
+    labels: &[Option<crate::speaker::Speaker>],
     offset_cs: i64,
 ) -> Result<PathBuf, String> {
     let path = dir.join("transcript.md");
@@ -366,12 +374,16 @@ fn write_transcript_md(
     }
 
     let mut wrote_any = false;
-    for seg in &t.segments {
+    for (i, seg) in t.segments.iter().enumerate() {
         let text = seg.text.trim();
         if text.is_empty() {
             continue;
         }
-        md.push_str(&format!("**[{}]** {}\n\n", fmt_cs(seg.start_cs + offset_cs), text));
+        let at = fmt_cs(seg.start_cs + offset_cs);
+        match labels.get(i).copied().flatten() {
+            Some(who) => md.push_str(&format!("**[{at} · {}]** {text}\n\n", who.label())),
+            None => md.push_str(&format!("**[{at}]** {text}\n\n")),
+        }
         wrote_any = true;
     }
     if !wrote_any && !appending {
@@ -601,6 +613,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn stopping_labels_the_transcript_from_the_lanes() {
+        use crate::speaker::tests::wav;
+        with_scratch(|dir| {
+            wav(&dir.join("mic.wav"), 6.0, &[(0.0, 3.0, 0.3)]);
+            wav(&dir.join("system.wav"), 6.0, &[(3.0, 6.0, 0.3)]);
+            let progress = crate::live::Progress {
+                blocks: vec![(0, transcript(&[(0, "Morning."), (300, "Hi.")]))],
+                complete: true,
+            };
+            let res = super::finish_from_blocks(dir, "Acme call", 1, "", None, Some(progress)).unwrap();
+            assert_eq!(res.segments.len(), 2);
+            let md = std::fs::read_to_string(dir.join("transcript.md")).unwrap();
+            assert!(md.contains("**[0:00 · You]** Morning."), "{md}");
+            assert!(md.contains("**[0:03 · Them]** Hi."), "{md}");
+        })
+    }
+
+    #[test]
+    fn an_unreadable_lane_still_finishes_with_an_unlabelled_transcript() {
+        use crate::speaker::tests::wav;
+        with_scratch(|dir| {
+            wav(&dir.join("mic.wav"), 6.0, &[(0.0, 6.0, 0.3)]);
+            std::fs::write(dir.join("system.wav"), b"not a wav").unwrap();
+            let progress = crate::live::Progress {
+                blocks: vec![(0, transcript(&[(0, "Morning."), (300, "Hi.")]))],
+                complete: true,
+            };
+            super::finish_from_blocks(dir, "Acme call", 1, "", None, Some(progress))
+                .expect("labelling must never sink the transcript");
+            let md = std::fs::read_to_string(dir.join("transcript.md")).unwrap();
+            assert!(md.contains("**[0:00]** Morning.") && md.contains("**[0:03]** Hi."), "{md}");
+        })
+    }
+
     fn transcript(lines: &[(i64, &str)]) -> Transcript {
         Transcript {
             segments: lines
@@ -657,13 +704,13 @@ mod tests {
         with_scratch(|dir| {
             // Take one: 90 seconds, already written up.
             lane_wav(&dir.join("mic.wav"), 16_000 * 90);
-            write_transcript_md(dir, "Acme call", &transcript(&[(0, "Morning.")]), 0).unwrap();
+            write_transcript_md(dir, "Acme call", &transcript(&[(0, "Morning.")]), &[], 0).unwrap();
 
             // Take two picks up where take one stopped.
             lane_wav(&dir.join("mic.002.wav"), 16_000 * 10);
             let offset = segment_offset_cs(dir, 2);
             assert_eq!(offset, 9_000, "take two starts 90s into the meeting");
-            write_transcript_md(dir, "Acme call", &transcript(&[(500, "One more thing.")]), offset)
+            write_transcript_md(dir, "Acme call", &transcript(&[(500, "One more thing.")]), &[], offset)
                 .unwrap();
 
             let md = std::fs::read_to_string(dir.join("transcript.md")).unwrap();
@@ -678,10 +725,27 @@ mod tests {
     }
 
     #[test]
+    fn labels_land_inside_the_timestamp_and_unlabelled_lines_are_unchanged() {
+        use crate::speaker::Speaker;
+        with_scratch(|dir| {
+            let t = transcript(&[(0, "Morning."), (300, "Hi there."), (600, "Mm.")]);
+            write_transcript_md(dir, "Acme call", &t, &[Some(Speaker::You), Some(Speaker::Them), None], 0)
+                .unwrap();
+            let md = std::fs::read_to_string(dir.join("transcript.md")).unwrap();
+            assert!(md.contains("**[0:00 · You]** Morning."), "{md}");
+            assert!(md.contains("**[0:03 · Them]** Hi there."), "{md}");
+            assert!(md.contains("**[0:06]** Mm."), "{md}");
+            // What reaches the language model and search has no labels in it.
+            let plain = crate::library::strip_transcript_markup(&md);
+            assert!(!plain.contains("You") && !plain.contains("Them"), "{plain}");
+        })
+    }
+
+    #[test]
     fn a_silent_continuation_does_not_stamp_over_what_was_already_transcribed() {
         with_scratch(|dir| {
-            write_transcript_md(dir, "Acme call", &transcript(&[(0, "Morning.")]), 0).unwrap();
-            write_transcript_md(dir, "Acme call", &transcript(&[]), 500).unwrap();
+            write_transcript_md(dir, "Acme call", &transcript(&[(0, "Morning.")]), &[], 0).unwrap();
+            write_transcript_md(dir, "Acme call", &transcript(&[]), &[], 500).unwrap();
 
             let md = std::fs::read_to_string(dir.join("transcript.md")).unwrap();
             assert!(md.contains("Morning."), "{md}");

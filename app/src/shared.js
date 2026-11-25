@@ -76,3 +76,33 @@ export function fmtMs(ms) {
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 }
+
+/// Consecutive lines read as one paragraph, with one timestamp on the front.
+///
+/// Whisper cuts a line every time someone pauses, which is why a transcript
+/// arrives as a list of fragments. A block ends once it has run longer than the
+/// chunk length — a long stretch still has to break somewhere a reader can
+/// follow — or when the speaker changes (`line.speaker`, "You" / "Them", set
+/// when the meeting was stopped). Unlabelled lines group by time alone, exactly
+/// as they did before speakers existed.
+export function groupTurns(lines, limit = chunkSeconds()) {
+  const turns = []
+  for (const line of lines) {
+    const last = turns[turns.length - 1]
+    const speaker = line.speaker || null
+    if (last && last.speaker === speaker && atSecs(line.at) - atSecs(last.lines[0].at) < limit) {
+      last.lines.push(line)
+    } else {
+      turns.push({ speaker, lines: [line] })
+    }
+  }
+  return turns
+}
+
+/// `M:SS` (or `H:MM:SS`) as seconds.
+export function atSecs(at) {
+  return String(at)
+    .split(':')
+    .map(Number)
+    .reduce((total, part) => total * 60 + (part || 0), 0)
+}
